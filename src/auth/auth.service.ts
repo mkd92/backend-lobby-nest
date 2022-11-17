@@ -4,32 +4,39 @@ import { AuthDto } from './dto';
 import * as argon from 'argon2';
 import { PrismaClientKnownRequestError } from '@prisma/client/runtime';
 import { JwtService } from '@nestjs/jwt';
+import { Tokens } from './types';
 
 @Injectable()
 export class AuthService {
   constructor(private prisma: PrismaService, private jwt: JwtService) {}
-  async signup(dto: AuthDto) {
+  async hash(data: string): Promise<string> {
+    const hash = await argon.hash(data);
+    return hash;
+  }
+
+  async signup(dto: AuthDto): Promise<Tokens> {
     const hash = await argon.hash(dto.password);
-    try {
-      const user = await this.prisma.user.create({
+
+    const user = await this.prisma.user
+      .create({
         data: {
           email: dto.email,
           hash: hash,
         },
-      });
-
-      return this.signToken(user.id, user.email);
-    } catch (e) {
-      if (e instanceof PrismaClientKnownRequestError) {
-        if (e.code === 'P2002') {
-          throw new ForbiddenException('Credentials Taken');
+      })
+      .catch((e) => {
+        if (e instanceof PrismaClientKnownRequestError) {
+          if (e.code === 'P2002') {
+            throw new ForbiddenException('Credentials Taken');
+          }
         }
-      }
-      throw e;
-    }
-    return dto;
+        throw e;
+      });
+    const tokens = await this.signTokens(user.id, user.email);
+    await this.updateRefreshTokenHash(user.id, tokens.refresh_token);
+    return tokens;
   }
-  async login(dto: AuthDto) {
+  async login(dto: AuthDto): Promise<Tokens> {
     const user = await this.prisma.user.findUnique({
       where: {
         email: dto.email,
@@ -42,18 +49,49 @@ export class AuthService {
     if (!pwMatches) {
       throw new ForbiddenException('Credentials incorrect');
     }
-    return this.signToken(user.id, user.email);
+    const tokens = await this.signTokens(user.id, user.email);
+    await this.updateRefreshTokenHash(user.id, tokens.refresh_token);
+    return tokens;
   }
-  async signToken(
-    userId: string,
-    email: string,
-  ): Promise<{ access_token: string }> {
-    const payload = { sub: userId, email };
-    const secret = 'secret';
-    const accessToken = await this.jwt.signAsync(payload, {
-      expiresIn: '15m',
-      secret,
+  // logout
+  async logout(userId: string): Promise<boolean> {
+    await this.prisma.user.updateMany({
+      where: { id: userId, hashedRt: { not: null } },
+      data: { hashedRt: null },
     });
-    return { access_token: accessToken };
+    return true;
+  }
+  // refresh tokens
+  async refreshTokens() {}
+
+  // Helper methods
+  async signTokens(userId: string, email: string): Promise<Tokens> {
+    const payload = { sub: userId, email };
+    const atSecret = 'at-secret';
+    const rtSecret = 'rt-secret';
+    const accessToken = await this.jwt.signAsync(payload, {
+      expiresIn: 60 * 15,
+      secret: atSecret,
+    });
+    const refreshToken = await this.jwt.signAsync(payload, {
+      expiresIn: 60 * 60 * 24 * 7,
+      secret: rtSecret,
+    });
+    return { access_token: accessToken, refresh_token: refreshToken };
+  }
+  // update token
+  async updateRefreshTokenHash(
+    userId: string,
+    refreshToken: string,
+  ): Promise<void> {
+    const hash = await this.hash(refreshToken);
+    await this.prisma.user.update({
+      where: {
+        id: userId,
+      },
+      data: {
+        hashedRt: hash,
+      },
+    });
   }
 }
