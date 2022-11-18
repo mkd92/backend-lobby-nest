@@ -1,7 +1,6 @@
 import {
   Body,
   Controller,
-  Get,
   HttpCode,
   HttpStatus,
   Post,
@@ -12,7 +11,6 @@ import { GetCurrentUserId, GetUser, Public } from './decorator';
 import { AuthDto } from './dto';
 import { Tokens } from './types';
 import { RtGuard } from './guard';
-import { JwtGuard } from 'src/auth/guard';
 
 @Controller('auth')
 export class AuthController {
@@ -31,7 +29,7 @@ export class AuthController {
   }
   @Post('logout')
   @HttpCode(HttpStatus.OK)
-  logout(@GetCurrentUserId() userId: string): Promise<boolean> {
+  logout(@GetCurrentUserId() userId: number): Promise<boolean> {
     return this.authService.logout(userId);
   }
   @Public()
@@ -39,7 +37,7 @@ export class AuthController {
   @Post('refresh')
   @HttpCode(HttpStatus.OK)
   refreshTokens(
-    @GetCurrentUserId() userId: string,
+    @GetCurrentUserId() userId: number,
     @GetUser('refresh_token') refreshToken: string,
   ): Promise<Tokens> {
     return this.authService.refreshTokens(userId, refreshToken);

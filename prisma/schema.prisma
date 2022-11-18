@@ -11,7 +11,7 @@ datasource db {
 }
 
 model User {
-  id String @id @default(uuid())
+  id Int @id @default(autoincrement()) @unique
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   email String @unique
@@ -20,4 +20,14 @@ model User {
 
   firstName String?
   lastName String?
+  properties Property[]
+}
+model Property{
+  id Int @id @default(autoincrement()) @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  propertyName String
+  propertyAddress String?
+  user User @relation(fields: [userId],references: [id])
+  userId Int 
 }
